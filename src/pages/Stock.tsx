@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../lib/supabase';
-import { Package, TrendingUp, AlertTriangle, Calendar, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Package, AlertTriangle, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigation } from '../contexts/NavigationContext';
 import { formatDate } from '../utils/dateFormat';
+import { StockDrillDownModal } from '../components/StockDrillDownModal';
 
 interface StockSummary {
   product_id: string;
@@ -21,23 +22,12 @@ interface StockSummary {
   nearest_expiry_date: string | null;
 }
 
-interface DetailedBatch {
-  id: string;
-  batch_number: string;
-  current_stock: number;
-  reserved_stock: number;
-  available_quantity: number;
-  expiry_date: string | null;
-  import_date: string;
-}
-
 export function Stock() {
   const { t } = useLanguage();
   const { setCurrentPage } = useNavigation();
   const [stockSummary, setStockSummary] = useState<StockSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<StockSummary | null>(null);
-  const [productBatches, setProductBatches] = useState<DetailedBatch[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
@@ -96,42 +86,6 @@ export function Stock() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const loadProductBatches = async (productId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('batches')
-        .select('id, batch_number, current_stock, reserved_stock, expiry_date, import_date')
-        .eq('product_id', productId)
-        .eq('is_active', true)
-        .gt('current_stock', 0)
-        .order('expiry_date', { ascending: true, nullsFirst: false });
-
-      if (error) throw error;
-
-      const batchesWithReserved = (data || []).map(batch => ({
-        ...batch,
-        available_quantity: batch.current_stock - (batch.reserved_stock || 0)
-      }));
-
-      setProductBatches(batchesWithReserved);
-    } catch (error) {
-      console.error('Error loading product batches:', error);
-    }
-  };
-
-  const handleProductClick = async (product: StockSummary) => {
-    if (selectedProduct?.product_id === product.product_id) {
-      setSelectedProduct(null);
-      return;
-    }
-    setSelectedProduct(product);
-    await loadProductBatches(product.product_id);
-  };
-
-  const goToBatches = () => {
-    setCurrentPage('batches');
   };
 
   const isExpired = (expiryDate: string | null) => {
@@ -196,7 +150,7 @@ export function Stock() {
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-gray-900">{t('stock.title')}</h1>
           <button
-            onClick={goToBatches}
+            onClick={() => setCurrentPage('batches')}
             className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition text-sm"
           >
             <Package className="w-4 h-4" />
@@ -223,51 +177,6 @@ export function Stock() {
           </div>
         </div>
 
-        {selectedProduct && (
-          <div className="bg-blue-50 rounded-lg border border-blue-200 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-sm font-semibold text-gray-800">
-                {selectedProduct.product_name} - Batches
-              </h2>
-              <button
-                onClick={() => setSelectedProduct(null)}
-                className="text-gray-400 hover:text-gray-600 text-sm font-bold px-1"
-              >
-                x
-              </button>
-            </div>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-blue-200">
-                  <th className="text-left py-1 px-2 font-medium text-gray-500">BATCH</th>
-                  <th className="text-right py-1 px-2 font-medium text-gray-500">STOCK</th>
-                  <th className="text-right py-1 px-2 font-medium text-gray-500">RESERVED</th>
-                  <th className="text-right py-1 px-2 font-medium text-gray-500">AVAILABLE</th>
-                  <th className="text-right py-1 px-2 font-medium text-gray-500">IMPORTED</th>
-                  <th className="text-right py-1 px-2 font-medium text-gray-500">EXPIRY</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productBatches.map(batch => (
-                  <tr key={batch.id} className="border-b border-blue-100">
-                    <td className="py-1 px-2 font-mono">{batch.batch_number}</td>
-                    <td className="py-1 px-2 text-right font-semibold">{batch.current_stock.toLocaleString()} {selectedProduct.unit}</td>
-                    <td className="py-1 px-2 text-right text-orange-600">{batch.reserved_stock > 0 ? `${batch.reserved_stock.toLocaleString()} ${selectedProduct.unit}` : '-'}</td>
-                    <td className="py-1 px-2 text-right text-green-600 font-semibold">{batch.available_quantity.toLocaleString()} {selectedProduct.unit}</td>
-                    <td className="py-1 px-2 text-right text-gray-600">{formatDate(batch.import_date)}</td>
-                    <td className={`py-1 px-2 text-right ${isExpired(batch.expiry_date) ? 'text-red-700 font-semibold' : isNearExpiry(batch.expiry_date) ? 'text-orange-600' : 'text-gray-600'}`}>
-                      {batch.expiry_date ? formatDate(batch.expiry_date) : '-'}
-                    </td>
-                  </tr>
-                ))}
-                {productBatches.length === 0 && (
-                  <tr><td colSpan={6} className="py-2 px-2 text-center text-gray-400">No active batches</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
         <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-2 border-b">
             <div className="relative">
@@ -276,7 +185,7 @@ export function Stock() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search..."
+                placeholder="Search products..."
                 className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
               />
             </div>
@@ -316,17 +225,18 @@ export function Stock() {
                     filteredData.map((item) => (
                       <tr
                         key={item.product_id}
-                        onClick={() => handleProductClick(item)}
-                        className={`cursor-pointer hover:bg-gray-50 transition-colors ${selectedProduct?.product_id === item.product_id ? 'bg-blue-50' : ''}`}
+                        onClick={() => setSelectedProduct(item)}
+                        className="cursor-pointer hover:bg-blue-50 transition-colors group"
+                        title="Click to view batch & reservation details"
                       >
-                        <td className="px-3 py-1.5 text-sm">
-                          <span className="font-medium text-gray-900">{item.product_name}</span>
+                        <td className="px-3 py-2 text-sm">
+                          <span className="font-medium text-gray-900 group-hover:text-blue-700 transition-colors">{item.product_name}</span>
                           <span className="text-[10px] text-gray-400 ml-1.5 capitalize">({item.category})</span>
                         </td>
-                        <td className={`px-3 py-1.5 text-sm text-right font-semibold ${item.total_current_stock === 0 ? 'text-gray-400' : item.total_current_stock < 500 ? 'text-orange-600' : 'text-green-600'}`}>
+                        <td className={`px-3 py-2 text-sm text-right font-semibold ${item.total_current_stock === 0 ? 'text-gray-400' : item.total_current_stock < 500 ? 'text-orange-600' : 'text-green-600'}`}>
                           {item.total_current_stock.toLocaleString()} {item.unit}
                         </td>
-                        <td className="px-3 py-1.5 text-sm text-right">
+                        <td className="px-3 py-2 text-sm text-right">
                           {item.reserved_stock === 0 && !item.shortage_quantity ? (
                             <span className="text-gray-300">-</span>
                           ) : (
@@ -340,16 +250,16 @@ export function Stock() {
                             </div>
                           )}
                         </td>
-                        <td className="px-3 py-1.5 text-sm text-right font-semibold text-green-600">
+                        <td className="px-3 py-2 text-sm text-right font-semibold text-green-600">
                           {item.available_quantity.toLocaleString()} {item.unit}
                         </td>
-                        <td className="px-3 py-1.5 text-sm text-center">
+                        <td className="px-3 py-2 text-sm text-center">
                           <span className="text-blue-600 font-medium">{item.active_batch_count}</span>
                           {item.expired_batch_count > 0 && (
                             <span className="text-red-500 ml-0.5 text-xs">({item.expired_batch_count} exp)</span>
                           )}
                         </td>
-                        <td className={`px-3 py-1.5 text-sm text-right ${
+                        <td className={`px-3 py-2 text-sm text-right ${
                           item.nearest_expiry_date && isExpired(item.nearest_expiry_date) ? 'text-red-700 font-semibold' :
                           item.nearest_expiry_date && isNearExpiry(item.nearest_expiry_date) ? 'text-orange-600 font-semibold' :
                           'text-gray-600'
@@ -368,6 +278,13 @@ export function Stock() {
           )}
         </div>
       </div>
+
+      {selectedProduct && (
+        <StockDrillDownModal
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+        />
+      )}
     </Layout>
   );
 }
