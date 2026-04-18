@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
@@ -100,6 +100,7 @@ export function Inventory() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'transaction' | 'return' | 'rejection'>('transaction');
+  const transactionOperationIdRef = useRef<string | null>(null);
 
   const [formData, setFormData] = useState({
     transaction_type: 'adjustment' as 'purchase' | 'sale' | 'adjustment',
@@ -237,6 +238,8 @@ export function Inventory() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
+      const operationId = transactionOperationIdRef.current || crypto.randomUUID();
+      transactionOperationIdRef.current = operationId;
 
       // HARDENING FIX #2: Use atomic DB-side stock adjustment
       // Prevents race conditions in concurrent updates
@@ -255,6 +258,7 @@ export function Inventory() {
             p_reference_id: null,
             p_notes: formData.notes || null,
             p_created_by: user.id,
+            p_operation_id: operationId,
           });
 
         if (adjustError) throw adjustError;
@@ -264,6 +268,7 @@ export function Inventory() {
           .from('inventory_transactions')
           .insert([{
             ...formData,
+            operation_id: operationId,
             batch_id: null,
             reference_number: formData.reference_number || null,
             notes: formData.notes || null,
@@ -336,6 +341,7 @@ export function Inventory() {
   };
 
   const resetForm = () => {
+    transactionOperationIdRef.current = null;
     setFormData({
       transaction_type: 'adjustment',
       product_id: '',

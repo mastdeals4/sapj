@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
@@ -118,6 +118,7 @@ export function DeliveryChallan() {
     notes: '',
   });
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const approvalOperationIdsRef = useRef<Record<string, string>>({});
   const [soReservations, setSoReservations] = useState<Map<string, number>>(new Map());
   const [items, setItems] = useState<Omit<ChallanItem, 'id'>[]>([{
     product_id: '',
@@ -660,9 +661,11 @@ export function DeliveryChallan() {
 
         if (editingChallan.approval_status === 'approved') {
           if (profile?.role === 'admin') {
+            const operationId = crypto.randomUUID();
             const { data: rpcResult, error: rpcError } = await supabase.rpc('admin_edit_approved_delivery_challan', {
               p_challan_id: editingChallan.id,
-              p_new_items: itemsForRpc
+              p_new_items: itemsForRpc,
+              p_operation_id: operationId
             });
             if (rpcError) {
               console.error('Admin Edit RPC Error:', rpcError);
@@ -837,11 +840,14 @@ export function DeliveryChallan() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
+      const operationId = approvalOperationIdsRef.current[challanId] || crypto.randomUUID();
+      approvalOperationIdsRef.current[challanId] = operationId;
 
       const { error } = await supabase
         .from('delivery_challans')
         .update({
           approval_status: 'approved',
+          approval_operation_id: operationId,
           approved_by: user.id,
           approved_at: new Date().toISOString()
         })
@@ -854,6 +860,7 @@ export function DeliveryChallan() {
       }
 
       showToast({ type: 'success', title: 'Success', message: 'Delivery Challan approved successfully!' });
+      delete approvalOperationIdsRef.current[challanId];
       loadChallans();
     } catch (error: any) {
       console.error('Error approving challan:', error);

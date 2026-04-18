@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Layout } from '../components/Layout';
 import { DataTable } from '../components/DataTable';
 import { Modal } from '../components/Modal';
@@ -197,6 +197,7 @@ export function Sales() {
     tax_rate: 11,
     total: 0,
   }]);
+  const createInvoiceOperationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadInvoices();
@@ -1002,6 +1003,9 @@ export function Sales() {
         if (fetchError) throw fetchError;
         invoice = updatedInvoice;
       } else {
+        const invoiceOperationId = createInvoiceOperationIdRef.current || crypto.randomUUID();
+        createInvoiceOperationIdRef.current = invoiceOperationId;
+
         // Check if invoice number already exists and regenerate if needed
         let invoiceNumber = formData.invoice_number;
         const { data: existingInvoice } = await supabase
@@ -1019,6 +1023,7 @@ export function Sales() {
         const { data: newInvoice, error: invoiceError } = await supabase
           .from('sales_invoices')
           .insert([{
+            inventory_operation_id: invoiceOperationId,
             invoice_number: invoiceNumber,
             customer_id: formData.customer_id,
             sales_order_id: selectedSOId || null,
@@ -1172,6 +1177,7 @@ export function Sales() {
   };
 
   const resetForm = () => {
+    createInvoiceOperationIdRef.current = null;
     setEditingInvoice(null);
     setSelectedChallanId('');
     setPendingChallans([]);
