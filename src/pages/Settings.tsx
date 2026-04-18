@@ -182,6 +182,30 @@ export function Settings() {
   };
 
 
+  const handleDownloadBackup = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/backup-export`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!response.ok) throw new Error('Backup export failed');
+      const json = await response.json();
+      const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (error) {
+      console.error('Backup error:', error);
+      alert('Failed to download backup. Please try again.');
+    }
+  };
+
   const isAdmin = profile?.role === 'admin';
   const isSales = profile?.role === 'sales';
   const isAccountant = profile?.role === 'accounts';
@@ -211,9 +235,20 @@ export function Settings() {
   return (
     <Layout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-600 mt-1">Configure system settings and manage users</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+            <p className="text-gray-600 mt-1">Configure system settings and manage users</p>
+          </div>
+          {isAdmin && (
+            <button
+              onClick={handleDownloadBackup}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition text-sm font-medium"
+            >
+              <Download className="w-4 h-4" />
+              Download Backup
+            </button>
+          )}
         </div>
 
         <div className="bg-white rounded-lg shadow">
