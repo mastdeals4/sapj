@@ -8,6 +8,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+const BACKUP_VERSION = "1.0";
+
 const REQUIRED_TABLES = [
   "products",
   "customers",
@@ -21,30 +23,67 @@ const REQUIRED_TABLES = [
 
 type TableName = typeof REQUIRED_TABLES[number];
 
-type BackupPayload = {
-  [K in TableName]?: Record<string, unknown>[];
-} & { exported_at?: unknown };
+const INSERT_ORDER: TableName[] = [
+  "products",
+  "customers",
+  "batches",
+  "sales_invoices",
+  "delivery_challans",
+  "sales_invoice_items",
+  "delivery_challan_items",
+  "inventory_transactions",
+];
 
-function validateStructure(body: unknown): BackupPayload {
+const TRUNCATE_ORDER = [
+  "delivery_challan_items",
+  "sales_invoice_items",
+  "inventory_transactions",
+  "delivery_challans",
+  "sales_invoices",
+  "batches",
+  "customers",
+  "products",
+];
+
+interface BackupEnvelope {
+  version: string;
+  exported_at: string;
+  data: Record<TableName, Record<string, unknown>[]>;
+}
+
+function validateEnvelope(body: unknown): BackupEnvelope {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new Error("Payload must be a JSON object");
   }
   const obj = body as Record<string, unknown>;
+
+  if (!("version" in obj)) {
+    throw new Error("Invalid backup version");
+  }
+  if (obj["version"] !== BACKUP_VERSION) {
+    throw new Error(`Invalid backup version: expected "${BACKUP_VERSION}", got "${obj["version"]}"`);
+  }
+
+  if (typeof obj["data"] !== "object" || obj["data"] === null || Array.isArray(obj["data"])) {
+    throw new Error('Backup must contain a "data" object');
+  }
+
+  const data = obj["data"] as Record<string, unknown>;
   for (const table of REQUIRED_TABLES) {
-    if (!(table in obj)) {
-      throw new Error(`Missing required table: ${table}`);
+    if (!(table in data)) {
+      throw new Error(`Missing required table in backup data: ${table}`);
     }
-    if (!Array.isArray(obj[table])) {
+    if (!Array.isArray(data[table])) {
       throw new Error(`Table "${table}" must be an array`);
     }
   }
-  return obj as BackupPayload;
+
+  return obj as unknown as BackupEnvelope;
 }
 
-function buildUpsertQuery(
+function buildInsertQuery(
   table: string,
-  rows: Record<string, unknown>[],
-  conflictColumn: string
+  rows: Record<string, unknown>[]
 ): { text: string; values: unknown[] } | null {
   if (rows.length === 0) return null;
 
@@ -52,11 +91,6 @@ function buildUpsertQuery(
   if (keys.length === 0) return null;
 
   const columnList = keys.map((k) => `"${k}"`).join(", ");
-  const updateSet = keys
-    .filter((k) => k !== conflictColumn)
-    .map((k) => `"${k}" = EXCLUDED."${k}"`)
-    .join(", ");
-
   const placeholderRows: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
@@ -70,36 +104,9 @@ function buildUpsertQuery(
     }
   }
 
-  const text = `
-    INSERT INTO "${table}" (${columnList})
-    VALUES ${placeholderRows.join(", ")}
-    ON CONFLICT ("${conflictColumn}") DO UPDATE SET ${updateSet}
-  `;
-
+  const text = `INSERT INTO "${table}" (${columnList}) VALUES ${placeholderRows.join(", ")}`;
   return { text, values };
 }
-
-const CONFLICT_COLUMNS: Record<TableName, string> = {
-  products: "id",
-  customers: "id",
-  batches: "id",
-  sales_invoices: "id",
-  sales_invoice_items: "id",
-  delivery_challans: "id",
-  delivery_challan_items: "id",
-  inventory_transactions: "id",
-};
-
-const INSERT_ORDER: TableName[] = [
-  "products",
-  "customers",
-  "batches",
-  "sales_invoices",
-  "sales_invoice_items",
-  "delivery_challans",
-  "delivery_challan_items",
-  "inventory_transactions",
-];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -122,13 +129,13 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const supabase = createClient(
+    const userClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await userClient.auth.getUser();
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -148,7 +155,7 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (!profile || profile.role !== "admin") {
-      return new Response(JSON.stringify({ error: "Only admins can import backups" }), {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -164,7 +171,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const payload = validateStructure(body);
+    const envelope = validateEnvelope(body);
 
     const dbUrl = Deno.env.get("SUPABASE_DB_URL");
     if (!dbUrl) {
@@ -175,15 +182,34 @@ Deno.serve(async (req: Request) => {
 
     try {
       await sql.begin(async (tx) => {
+        for (const table of TRUNCATE_ORDER) {
+          await tx.unsafe(`TRUNCATE TABLE "${table}" CASCADE`);
+        }
+
         for (const table of INSERT_ORDER) {
-          const rows = payload[table] ?? [];
+          const rows = envelope.data[table] ?? [];
           if (rows.length === 0) continue;
-
-          const conflictCol = CONFLICT_COLUMNS[table];
-          const query = buildUpsertQuery(table, rows, conflictCol);
+          const query = buildInsertQuery(table, rows);
           if (!query) continue;
-
           await tx.unsafe(query.text, query.values as never[]);
+        }
+
+        for (const table of INSERT_ORDER) {
+          await tx.unsafe(`
+            DO $$
+            DECLARE
+              seq_name text;
+              max_id bigint;
+            BEGIN
+              SELECT pg_get_serial_sequence('"${table}"', 'id') INTO seq_name;
+              IF seq_name IS NOT NULL THEN
+                SELECT COALESCE(MAX(id::bigint), 0) INTO max_id FROM "${table}";
+                PERFORM setval(seq_name, GREATEST(max_id, 1));
+              END IF;
+            EXCEPTION WHEN others THEN
+              NULL;
+            END $$;
+          `);
         }
       });
     } finally {
@@ -192,14 +218,12 @@ Deno.serve(async (req: Request) => {
 
     const counts: Record<string, number> = {};
     for (const table of INSERT_ORDER) {
-      counts[table] = payload[table]?.length ?? 0;
+      counts[table] = envelope.data[table]?.length ?? 0;
     }
 
     return new Response(
       JSON.stringify({ success: true, imported: counts }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     const message = (err as Error).message ?? "Unknown error";

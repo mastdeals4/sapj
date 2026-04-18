@@ -210,6 +210,7 @@ export function Settings() {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState<{ success: boolean; message: string; imported?: Record<string, number> } | null>(null);
+  const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
 
   const handleRestoreBackup = async () => {
     if (!restoreFile) return;
@@ -222,6 +223,14 @@ export function Settings() {
         payload = JSON.parse(text);
       } catch {
         setRestoreResult({ success: false, message: 'Invalid JSON file. Please select a valid backup file.' });
+        return;
+      }
+      if (
+        typeof payload !== 'object' ||
+        payload === null ||
+        (payload as Record<string, unknown>)['version'] !== '1.0'
+      ) {
+        setRestoreResult({ success: false, message: 'Invalid backup version. Only version 1.0 backups are supported.' });
         return;
       }
       const { data: { session } } = await supabase.auth.getSession();
@@ -244,6 +253,7 @@ export function Settings() {
       setRestoreResult({ success: false, message: (error as Error).message ?? 'Unexpected error during restore.' });
     } finally {
       setRestoring(false);
+      setConfirmStep(0);
     }
   };
 
@@ -251,6 +261,7 @@ export function Settings() {
     setShowRestoreModal(false);
     setRestoreFile(null);
     setRestoreResult(null);
+    setConfirmStep(0);
   };
 
   const isAdmin = profile?.role === 'admin';
@@ -811,7 +822,8 @@ export function Settings() {
             </div>
 
             <div className="p-6 space-y-4">
-              {!restoreResult && (
+              {/* Step 0: file picker */}
+              {confirmStep === 0 && !restoreResult && (
                 <>
                   <div
                     className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition"
@@ -840,14 +852,38 @@ export function Settings() {
                       e.target.value = '';
                     }}
                   />
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <p className="text-xs text-amber-800">
-                      <strong>Warning:</strong> Restoring a backup will upsert all records from the file. Existing records with matching IDs will be overwritten.
-                    </p>
-                  </div>
                 </>
               )}
 
+              {/* Step 1: first confirmation */}
+              {confirmStep === 1 && !restoreResult && (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg p-4">
+                    <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-800">
+                      <strong>This will REPLACE all existing data.</strong> This action cannot be undone. All current products, customers, batches, invoices, and transactions will be permanently deleted and replaced with the backup data.
+                    </p>
+                  </div>
+                  <p className="text-sm text-gray-600 text-center">Do you want to proceed?</p>
+                </div>
+              )}
+
+              {/* Step 2: second confirmation */}
+              {confirmStep === 2 && !restoreResult && (
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg p-4">
+                    <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm font-semibold text-red-800">
+                      Are you absolutely sure you want to restore this backup?
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-500 text-center">
+                    Restoring: <span className="font-medium text-gray-700">{restoreFile?.name}</span>
+                  </p>
+                </div>
+              )}
+
+              {/* Result */}
               {restoreResult && (
                 <div className={`rounded-lg p-4 ${restoreResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
                   <div className="flex items-start gap-3">
@@ -881,11 +917,35 @@ export function Settings() {
               >
                 {restoreResult?.success ? 'Close' : 'Cancel'}
               </button>
-              {!restoreResult && (
+
+              {/* Step 0 action */}
+              {confirmStep === 0 && !restoreResult && (
+                <button
+                  onClick={() => setConfirmStep(1)}
+                  disabled={!restoreFile}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Upload className="w-4 h-4" />
+                  Restore
+                </button>
+              )}
+
+              {/* Step 1 action */}
+              {confirmStep === 1 && !restoreResult && (
+                <button
+                  onClick={() => setConfirmStep(2)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition"
+                >
+                  Yes, continue
+                </button>
+              )}
+
+              {/* Step 2 action */}
+              {confirmStep === 2 && !restoreResult && (
                 <button
                   onClick={handleRestoreBackup}
-                  disabled={!restoreFile || restoring}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={restoring}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-700 rounded-lg hover:bg-red-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {restoring ? (
                     <>
@@ -893,10 +953,7 @@ export function Settings() {
                       Restoring...
                     </>
                   ) : (
-                    <>
-                      <Upload className="w-4 h-4" />
-                      Restore
-                    </>
+                    'Yes, I am absolutely sure'
                   )}
                 </button>
               )}
