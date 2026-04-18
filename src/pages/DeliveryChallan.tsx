@@ -620,6 +620,11 @@ export function DeliveryChallan() {
       }
     }
 
+    if (!editingChallan && !formData.sales_order_id) {
+      showToast({ type: 'error', title: 'Error', message: 'Sales Order is required to create a Delivery Challan.' });
+      return;
+    }
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');

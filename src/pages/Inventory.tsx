@@ -255,7 +255,6 @@ export function Inventory() {
             p_batch_id: formData.batch_id,
             p_quantity_change: quantityChange,
             p_transaction_type: formData.transaction_type,
-            p_operation_id: crypto.randomUUID(),
             p_reference_id: null,
             p_notes: formData.notes || null,
             p_created_by: user.id,

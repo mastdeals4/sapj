@@ -929,6 +929,40 @@ export function Sales() {
         return;
       }
 
+      let resolvedSalesOrderId = selectedSOId;
+      if (!editingInvoice) {
+        if (selectedDCIds.length > 0) {
+          const { data: selectedDCs, error: dcError } = await supabase
+            .from('delivery_challans')
+            .select('id, sales_order_id')
+            .in('id', selectedDCIds);
+
+          if (dcError) throw dcError;
+
+          const dcSoIds = Array.from(new Set((selectedDCs || []).map((dc: { sales_order_id: string | null }) => dc.sales_order_id).filter(Boolean)));
+
+          if (dcSoIds.length !== 1) {
+            showToast({ type: 'error', title: 'Error', message: 'Selected Delivery Challans must all be linked to the same Sales Order.' });
+            return;
+          }
+
+          const dcLinkedSoId = dcSoIds[0] as string;
+          if (selectedSOId && selectedSOId !== dcLinkedSoId) {
+            showToast({ type: 'error', title: 'Error', message: 'Selected Sales Order does not match the linked Sales Order on Delivery Challans.' });
+            return;
+          }
+
+          resolvedSalesOrderId = dcLinkedSoId;
+          if (selectedSOId !== dcLinkedSoId) {
+            setSelectedSOId(dcLinkedSoId);
+            setSoAutoLinked(true);
+          }
+        } else if (!selectedSOId) {
+          showToast({ type: 'error', title: 'Error', message: 'Sales Order is required when creating a Sales Invoice.' });
+          return;
+        }
+      }
+
       const totals = calculateTotals();
 
       // Calculate due date based on payment terms
@@ -1026,7 +1060,7 @@ export function Sales() {
             inventory_operation_id: invoiceOperationId,
             invoice_number: invoiceNumber,
             customer_id: formData.customer_id,
-            sales_order_id: selectedSOId || null,
+            sales_order_id: resolvedSalesOrderId,
             invoice_date: formData.invoice_date,
             due_date: dueDate.toISOString().split('T')[0],
             discount_amount: formData.discount,
