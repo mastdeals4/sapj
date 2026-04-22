@@ -428,7 +428,7 @@ export function DeliveryChallan() {
                 return {
                   product_id: item.product_id,
                   batch_id: '',
-                  quantity: item.quantity,
+                  quantity: parseFloat(String(item.quantity)) || 0,
                   pack_size: null,
                   pack_type: null,
                   number_of_packs: null,
@@ -451,7 +451,7 @@ export function DeliveryChallan() {
               return {
                 product_id: item.product_id,
                 batch_id: fifoBatch.id,
-                quantity: item.quantity,
+                quantity: parseFloat(String(item.quantity)) || 0,
                 pack_size: packSize,
                 pack_type: packType,
                 number_of_packs: numberOfPacks || 1,
@@ -578,10 +578,10 @@ export function DeliveryChallan() {
       setItems(loadedItems.map(item => ({
         product_id: item.product_id,
         batch_id: item.batch_id,
-        quantity: item.quantity,
-        pack_size: item.pack_size,
+        quantity: parseFloat(String(item.quantity)) || 0,
+        pack_size: item.pack_size ? parseFloat(String(item.pack_size)) : null,
         pack_type: item.pack_type,
-        number_of_packs: item.number_of_packs,
+        number_of_packs: item.number_of_packs ? parseInt(String(item.number_of_packs), 10) : null,
       })));
     }
 
@@ -590,6 +590,11 @@ export function DeliveryChallan() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (items.length === 0) {
+      showToast({ type: 'error', title: 'Error', message: 'Please add at least one item to the Delivery Challan.' });
+      return;
+    }
 
     const invalidItems = items.filter(item => !item.product_id || !item.batch_id || item.quantity <= 0);
     if (invalidItems.length > 0) {
@@ -743,19 +748,30 @@ export function DeliveryChallan() {
           challan_id: challanId,
           product_id: item.product_id,
           batch_id: item.batch_id,
-          quantity: item.quantity,
-          pack_size: item.pack_size,
+          quantity: parseFloat(String(item.quantity)),
+          pack_size: item.pack_size ? parseFloat(String(item.pack_size)) : null,
           pack_type: item.pack_type,
-          number_of_packs: item.number_of_packs,
+          number_of_packs: item.number_of_packs ? parseInt(String(item.number_of_packs), 10) : null,
         }));
 
-        const { error: itemsError } = await supabase
+        if (challanItemsData.length === 0) {
+          await supabase.from('delivery_challans').delete().eq('id', challanId);
+          throw new Error('No items to save. Please add at least one item.');
+        }
+
+        const { data: insertedItems, error: itemsError } = await supabase
           .from('delivery_challan_items')
-          .insert(challanItemsData);
+          .insert(challanItemsData)
+          .select('id');
 
         if (itemsError) {
           await supabase.from('delivery_challans').delete().eq('id', challanId);
           throw itemsError;
+        }
+
+        if (!insertedItems || insertedItems.length === 0) {
+          await supabase.from('delivery_challans').delete().eq('id', challanId);
+          throw new Error('Items failed to save. The Delivery Challan was not created. Please try again.');
         }
       }
 
