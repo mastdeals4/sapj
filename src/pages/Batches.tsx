@@ -6,7 +6,7 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, CreditCard as Edit, Trash2, AlertTriangle, Package, DollarSign, FileText, ExternalLink, Search, ChevronDown, ChevronRight, Archive, Eye, EyeOff, ExternalLink as LinkIcon, Download } from 'lucide-react';
+import { Plus, CreditCard as Edit, Trash2, AlertTriangle, Package, DollarSign, FileText, ExternalLink, Search, ChevronDown, ChevronRight, Archive, Eye, EyeOff, ExternalLink as LinkIcon } from 'lucide-react';
 import { ProformaInvoiceView } from '../components/ProformaInvoiceView';
 import { DeliveryChallanView } from '../components/DeliveryChallanView';
 import { InvoiceView } from '../components/InvoiceView';
@@ -84,7 +84,7 @@ export function Batches() {
   const [transactionHistoryModal, setTransactionHistoryModal] = useState(false);
   const [selectedBatchDocs, setSelectedBatchDocs] = useState<BatchDocument[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
-  const [selectedProductForHistory, setSelectedProductForHistory] = useState<{id: string; name: string; code: string; batchId?: string; batchNumber?: string; currentStock?: number; reservedStock?: number} | null>(null);
+  const [selectedProductForHistory, setSelectedProductForHistory] = useState<{id: string; name: string; code: string; batchId?: string; batchNumber?: string} | null>(null);
   const [transactionHistory, setTransactionHistory] = useState<any[]>([]);
   const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
@@ -95,13 +95,6 @@ export function Batches() {
   const [quickViewDC, setQuickViewDC] = useState<{ challan: any; items: any[] } | null>(null);
   const [quickViewInvoice, setQuickViewInvoice] = useState<{ invoice: any; items: any[] } | null>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
-
-  // Inline document viewer state
-  const [showDocViewer, setShowDocViewer] = useState(false);
-  const [docViewerName, setDocViewerName] = useState('');
-  const [docViewerUrl, setDocViewerUrl] = useState<string | null>(null);
-  const [docViewerBlobUrl, setDocViewerBlobUrl] = useState<string | null>(null);
-  const [docViewerLoading, setDocViewerLoading] = useState(false);
   const [formData, setFormData] = useState({
     batch_number: '',
     product_id: '',
@@ -259,62 +252,6 @@ export function Batches() {
     } catch (error) {
       console.error('Error loading documents:', error);
       showToast({ type: 'error', title: 'Error', message: 'Failed to load documents' });
-    }
-  };
-
-  const getSignedUrl = async (fileUrl: string): Promise<string> => {
-    try {
-      const match = fileUrl.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)/);
-      if (!match) return fileUrl;
-      const [, bucket, path] = match;
-      const { data } = await supabase.storage.from(bucket).createSignedUrl(decodeURIComponent(path), 3600);
-      return data?.signedUrl || fileUrl;
-    } catch {
-      return fileUrl;
-    }
-  };
-
-  const handleViewDocument = async (fileUrl: string, fileName = 'Document') => {
-    setShowDocViewer(true);
-    setDocViewerName(fileName);
-    setDocViewerUrl(fileUrl);
-    setDocViewerBlobUrl(null);
-    setDocViewerLoading(true);
-    try {
-      const signedUrl = await getSignedUrl(fileUrl);
-      const res = await fetch(signedUrl);
-      if (!res.ok) {
-        setDocViewerBlobUrl(null);
-        return;
-      }
-      const blob = await res.blob();
-      setDocViewerBlobUrl(URL.createObjectURL(blob));
-    } catch {
-      setDocViewerBlobUrl(null);
-    } finally {
-      setDocViewerLoading(false);
-    }
-  };
-
-  const handleDownloadDocument = async (fileUrl: string, fileName: string) => {
-    try {
-      const signedUrl = await getSignedUrl(fileUrl);
-      const res = await fetch(signedUrl);
-      if (!res.ok) {
-        showToast({ type: 'error', title: 'Download Failed', message: 'File not found or bucket not accessible.' });
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName || fileUrl.split('/').pop()?.split('?')[0] || 'document';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      showToast({ type: 'error', title: 'Download Failed', message: 'Could not download the file.' });
     }
   };
 
@@ -644,8 +581,8 @@ export function Batches() {
     });
   };
 
-  const showTransactionHistory = async (productId: string, productName: string, productCode: string, batchId?: string, batchNumber?: string, currentStock?: number, reservedStock?: number) => {
-    setSelectedProductForHistory({ id: productId, name: productName, code: productCode, batchId, batchNumber, currentStock, reservedStock });
+  const showTransactionHistory = async (productId: string, productName: string, productCode: string, batchId?: string, batchNumber?: string) => {
+    setSelectedProductForHistory({ id: productId, name: productName, code: productCode, batchId, batchNumber });
     setTransactionHistoryModal(true);
 
     let txnQuery = supabase
@@ -1090,7 +1027,7 @@ export function Batches() {
                                     <tr key={batch.id} className={`border-t border-gray-100 hover:bg-gray-50 ${isArchived ? 'opacity-50 bg-gray-50' : isSoldOut ? 'bg-orange-50/30' : ''}`}>
                                       <td className="px-3 py-1.5">
                                         <button
-                                          onClick={() => showTransactionHistory(batch.product_id, batch.products?.product_name || '', batch.products?.product_code || '', batch.id, batch.batch_number, batch.current_stock, batch.reserved_stock)}
+                                          onClick={() => showTransactionHistory(batch.product_id, batch.products?.product_name || '', batch.products?.product_code || '', batch.id, batch.batch_number)}
                                           className="font-mono text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
                                         >
                                           {batch.batch_number}
@@ -1226,13 +1163,40 @@ export function Batches() {
                 </p>
               </div>
             </div>
+            {/* Stock in Hand Value at Landed Cost */}
             <div className="mt-4 pt-4 border-t border-blue-200">
+              <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1">
+                <Package className="w-4 h-4 text-gray-500" />
+                Stock in Hand Value (at Landed Cost)
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="bg-white rounded-lg p-3 border border-blue-100">
+                  <p className="text-xs text-gray-500 mb-1">Stock in Hand Value (IDR)</p>
+                  <p className="text-xl font-bold text-gray-800">
+                    {formatCurrency(
+                      batches.reduce((sum, batch) => {
+                        const landedCostPerUnit = batch.landed_cost_per_unit ?? batch.import_price;
+                        return sum + (batch.current_stock * landedCostPerUnit);
+                      }, 0)
+                    )}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg p-3 border border-blue-100">
+                  <p className="text-xs text-gray-500 mb-1">Stock in Hand Quantity</p>
+                  <p className="text-xl font-bold text-gray-800">
+                    {batches.reduce((sum, batch) => sum + batch.current_stock, 0).toLocaleString()} units
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    of {batches.reduce((sum, batch) => sum + batch.import_quantity, 0).toLocaleString()} imported
+                  </p>
+                </div>
+              </div>
               <div className="flex justify-between items-center text-sm">
                 <span className="text-gray-600">Total Batches:</span>
                 <span className="font-semibold text-gray-900">{batches.length}</span>
               </div>
               <div className="flex justify-between items-center text-sm mt-1">
-                <span className="text-gray-600">Total Quantity:</span>
+                <span className="text-gray-600">Total Import Quantity:</span>
                 <span className="font-semibold text-gray-900">
                   {batches.reduce((sum, batch) => sum + batch.import_quantity, 0).toLocaleString()} units
                 </span>
@@ -1715,39 +1679,26 @@ export function Batches() {
           <div className="space-y-3">
             {selectedBatchDocs.length > 0 ? (
               selectedBatchDocs.map((doc) => (
-                <div
+                <a
                   key={doc.id}
+                  href={doc.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition"
                 >
                   <FileText className="w-5 h-5 text-blue-600 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
                     <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                      <span className="capitalize">{doc.file_type?.replace('_', ' ')}</span>
-                      {doc.file_size && <><span>•</span><span>{(doc.file_size / 1024).toFixed(1)} KB</span></>}
+                      <span className="capitalize">{doc.file_type.replace('_', ' ')}</span>
+                      <span>•</span>
+                      <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
                       <span>•</span>
                       <span>{formatDate(doc.uploaded_at)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => handleViewDocument(doc.file_url, doc.file_name)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition"
-                      title="View document"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      View
-                    </button>
-                    <button
-                      onClick={() => handleDownloadDocument(doc.file_url, doc.file_name)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs text-green-700 border border-green-200 rounded hover:bg-green-50 transition"
-                      title="Download"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      Download
-                    </button>
-                  </div>
-                </div>
+                  <ExternalLink className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                </a>
               ))
             ) : (
               <div className="text-center py-8 text-gray-500">
@@ -1757,68 +1708,6 @@ export function Batches() {
             )}
           </div>
         </Modal>
-
-        {/* Inline Document Viewer Modal */}
-        {showDocViewer && (
-          <Modal
-            isOpen={showDocViewer}
-            onClose={() => {
-              setShowDocViewer(false);
-              setDocViewerUrl(null);
-              setDocViewerName('');
-              if (docViewerBlobUrl) { URL.revokeObjectURL(docViewerBlobUrl); setDocViewerBlobUrl(null); }
-            }}
-            title={docViewerName || 'Document'}
-            size="xl"
-          >
-            <div className="flex flex-col gap-2" style={{ height: '75vh' }}>
-              <div className="flex justify-end gap-2">
-                {docViewerUrl && (
-                  <button
-                    onClick={() => handleDownloadDocument(docViewerUrl, docViewerName)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-green-700 border border-green-200 rounded-lg hover:bg-green-50 transition"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    Download
-                  </button>
-                )}
-              </div>
-              {docViewerLoading && (
-                <div className="flex-1 flex items-center justify-center bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="text-center text-gray-500">
-                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                    <p className="text-sm">Loading document...</p>
-                  </div>
-                </div>
-              )}
-              {!docViewerLoading && docViewerBlobUrl && (
-                <iframe
-                  src={docViewerBlobUrl}
-                  className="flex-1 w-full rounded-lg border border-gray-200"
-                  title={docViewerName}
-                />
-              )}
-              {!docViewerLoading && !docViewerBlobUrl && (
-                <div className="flex-1 flex items-center justify-center bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="text-center text-gray-500 px-6">
-                    <FileText className="w-10 h-10 mx-auto mb-3 text-gray-400" />
-                    <p className="text-sm font-medium mb-2">Document cannot be previewed</p>
-                    <p className="text-xs text-gray-400 mb-5">The file may have been moved or the storage bucket is not accessible.</p>
-                    {docViewerUrl && (
-                      <button
-                        onClick={() => handleDownloadDocument(docViewerUrl, docViewerName)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition"
-                      >
-                        <Download className="w-4 h-4" />
-                        Try Download
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </Modal>
-        )}
 
         {/* Transaction History Modal */}
         <Modal
@@ -1838,9 +1727,8 @@ export function Batches() {
               const totalIn = stockTxns.filter((t: any) => parseFloat(t.quantity) > 0).reduce((s: number, t: any) => s + parseFloat(t.quantity), 0);
               const totalOut = stockTxns.filter((t: any) => parseFloat(t.quantity) < 0).reduce((s: number, t: any) => s + Math.abs(parseFloat(t.quantity)), 0);
               const totalReserved = activeRes.reduce((s: number, t: any) => s + parseFloat(t.quantity), 0);
-              const actualCurrentStock = selectedProductForHistory?.currentStock ?? (totalIn - totalOut);
-              const actualReservedStock = selectedProductForHistory?.reservedStock ?? totalReserved;
-              const freeStock = actualCurrentStock - actualReservedStock;
+              const currentStock = totalIn - totalOut;
+              const freeStock = currentStock - totalReserved;
 
               return (
                 <>
@@ -1856,7 +1744,7 @@ export function Batches() {
                       </div>
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-center">
                         <div className="text-xs text-amber-600 font-medium">Reserved</div>
-                        <div className="text-sm font-bold text-amber-700">{actualReservedStock.toLocaleString()}</div>
+                        <div className="text-sm font-bold text-amber-700">{totalReserved.toLocaleString()}</div>
                       </div>
                       <div className={`${freeStock < 0 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'} border rounded-lg p-2 text-center`}>
                         <div className={`text-xs font-medium ${freeStock < 0 ? 'text-red-600' : 'text-blue-600'}`}>Free</div>
