@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Plus, DollarSign, Package, Truck, Building2, CreditCard as Edit, Trash2, FileText, Upload, X, ExternalLink, Download, Eye, Clipboard } from 'lucide-react';
+import { Plus, DollarSign, Package, Truck, Building2, CreditCard as Edit, Trash2, FileText, Upload, X, ExternalLink, Download, Eye } from 'lucide-react';
 import { Modal } from '../Modal';
 import { useFinance } from '../../contexts/FinanceContext';
+import { getFinancialYear } from '../../utils/dateFormat';
 
 interface FinanceExpense {
   id: string;
@@ -18,6 +19,7 @@ interface FinanceExpense {
   payment_method: string;
   bank_account_id: string | null;
   payment_reference: string | null;
+  voucher_number: string | null;
   created_at: string;
   batches?: { batch_number: string } | null;
   import_containers?: { container_ref: string } | null;
@@ -500,6 +502,7 @@ export function ExpenseManager({ canManage }: ExpenseManagerProps) {
     }
   };
 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -692,9 +695,22 @@ export function ExpenseManager({ canManage }: ExpenseManagerProps) {
 
         console.log('=== CREATING NEW EXPENSE ===');
 
+        // Generate voucher number: EXP/YY-YY/NNN
+        const fy = getFinancialYear(new Date());
+        const fyPrefix = `EXP/${fy}/`;
+        const { data: fyNums } = await supabase
+          .from('finance_expenses')
+          .select('voucher_number')
+          .like('voucher_number', `${fyPrefix}%`);
+        const maxSeq = (fyNums || []).reduce((max, r) => {
+          const n = parseInt(r.voucher_number?.split('/')[2] || '0', 10);
+          return isNaN(n) ? max : Math.max(max, n);
+        }, 0);
+        const voucherNumber = `${fyPrefix}${String(maxSeq + 1).padStart(3, '0')}`;
+
         const { data: newExpense, error } = await supabase
           .from('finance_expenses')
-          .insert([{ ...expenseData, created_by: user.id }])
+          .insert([{ ...expenseData, created_by: user.id, voucher_number: voucherNumber }])
           .select(`
             *,
             batches (batch_number),
@@ -1104,16 +1120,18 @@ export function ExpenseManager({ canManage }: ExpenseManagerProps) {
             </div>
           </div>
           {canManage && (
-            <button
-              onClick={() => {
-                resetForm();
-                setModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-blue-600 rounded hover:bg-blue-50 font-medium transition-all shadow-sm text-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  resetForm();
+                  setModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-blue-600 rounded hover:bg-blue-50 font-medium transition-all shadow-sm text-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                New
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1206,6 +1224,7 @@ export function ExpenseManager({ canManage }: ExpenseManagerProps) {
         <table className="min-w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
+              <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600">No.</th>
               <th
                 onClick={() => handleSort('date')}
                 className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 cursor-pointer hover:bg-gray-100 select-none"
@@ -1280,7 +1299,7 @@ export function ExpenseManager({ canManage }: ExpenseManagerProps) {
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={canManage ? 9 : 8} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={canManage ? 10 : 9} className="px-6 py-8 text-center text-gray-500">
                   Loading...
                 </td>
               </tr>
@@ -1304,6 +1323,11 @@ export function ExpenseManager({ canManage }: ExpenseManagerProps) {
 
                 return (
                   <tr key={expense.id} className="hover:bg-blue-50/50 transition-colors">
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="font-mono text-xs text-gray-500">
+                        {expense.voucher_number || '—'}
+                      </div>
+                    </td>
                     <td className="px-4 py-2.5 whitespace-nowrap">
                       <div className="text-xs text-gray-900 font-medium">
                         {formatDate(expense.expense_date)}
