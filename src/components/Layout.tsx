@@ -208,25 +208,25 @@ export function Layout({ children }: LayoutProps) {
         </div>
 
         {/* Nav groups */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-1">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-0.5">
           {groups.map((group, gi) => {
             const visibleItems = group.items.filter(item => accessibleModules.has(item.id));
             if (visibleItems.length === 0) return null;
 
             return (
-              <div key={group.label} className={gi > 0 ? 'mt-0.5' : ''}>
+              <div key={group.label} className={gi > 0 ? 'mt-px' : ''}>
                 {/* Group label — hidden when collapsed */}
                 {!isCollapsed && (
-                  <p className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                  <p className="px-2.5 pt-1 pb-px text-[9px] font-semibold text-gray-400 uppercase tracking-wider">
                     {group.label}
                   </p>
                 )}
                 {/* Collapsed: tiny gap line between groups */}
                 {isCollapsed && gi > 0 && (
-                  <div className="mx-2.5 my-0.5 border-t border-gray-100" />
+                  <div className="mx-2.5 my-px border-t border-gray-100" />
                 )}
 
-                <div className="px-1.5 space-y-px">
+                <div className="px-1.5">
                   {visibleItems.map(item => {
                     const Icon = item.icon;
                     const isActive = currentPage === item.id;
@@ -236,23 +236,20 @@ export function Layout({ children }: LayoutProps) {
                         href={`/${item.id}`}
                         onClick={e => { e.preventDefault(); navigate(item.id); }}
                         className={`relative group flex items-center rounded-md transition-colors duration-100
-                          ${isCollapsed ? 'justify-center px-0 py-1.5' : 'gap-2 px-2 py-1.5'}
+                          ${isCollapsed ? 'justify-center px-0' : 'gap-2 px-2'}
                           ${isActive
                             ? 'bg-blue-50 text-blue-600'
                             : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                           }`}
-                        style={{ minHeight: 32 }}
+                        style={{ height: 28 }}
                       >
                         {/* Active left bar */}
                         {isActive && (
                           <span className="absolute left-0 top-1 bottom-1 w-0.5 bg-blue-500 rounded-r" />
                         )}
-                        <Icon
-                          className="flex-shrink-0"
-                          style={{ width: 16, height: 16 }}
-                        />
+                        <Icon className="flex-shrink-0" style={{ width: 15, height: 15 }} />
                         {!isCollapsed && (
-                          <span className="text-sm font-medium truncate">{item.label}</span>
+                          <span className="text-xs font-medium truncate">{item.label}</span>
                         )}
                         {/* Tooltip — only when truly collapsed (not hover-expanded) */}
                         {sidebarCollapsed && !hoverExpanded && (
