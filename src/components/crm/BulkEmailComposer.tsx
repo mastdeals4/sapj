@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import {
-  Mail, Send, FileText, Clock, Users, AlertCircle, CheckCircle,
+  Mail, Send, FileText, Clock, Users, CheckCircle,
   XCircle, Bold, Italic, Underline, List, AlignLeft, AlignCenter,
-  AlignRight, Link2, Image, ChevronDown, X, Minus, Plus, Type
+  AlignRight, Link2, ChevronDown, X, Minus, Plus, Type, Paperclip, Trash2
 } from 'lucide-react';
 import { showToast } from '../ToastNotification';
 
@@ -36,6 +36,11 @@ interface SendResult {
   error?: string;
 }
 
+interface AttachedFile {
+  file: File;
+  id: string;
+}
+
 const VARIABLES = [
   { label: 'Company Name', value: '{{company_name}}' },
   { label: 'Contact Person', value: '{{contact_person}}' },
@@ -54,9 +59,11 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
   const [currentIndex, setCurrentIndex] = useState(0);
   const [step, setStep] = useState<'compose' | 'sending' | 'done'>('compose');
   const [senderName, setSenderName] = useState('');
+  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
   const templateMenuRef = useRef<HTMLDivElement>(null);
   const variableMenuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadTemplates();
@@ -149,6 +156,38 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
       .replace(/\{\{contact_person\}\}/g, customer.contact_person || 'Sir/Madam');
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newAttachments = files.map(file => ({
+      file,
+      id: `${Date.now()}-${Math.random()}`,
+    }));
+    setAttachments(prev => [...prev, ...newAttachments]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const sendBulkEmails = async () => {
     const currentHtml = editorRef.current?.innerHTML || '';
     if (!subject.trim() || !currentHtml.trim() || currentHtml === '<br>') {
@@ -180,6 +219,15 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
         return;
       }
 
+      // Pre-encode attachments once (same for all recipients)
+      const encodedAttachments = await Promise.all(
+        attachments.map(async a => ({
+          filename: a.file.name,
+          mimeType: a.file.type || 'application/octet-stream',
+          data: await fileToBase64(a.file),
+        }))
+      );
+
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       let successCount = 0;
 
@@ -192,6 +240,7 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
         ));
 
         try {
+          // Each customer gets their own individual email — one email address per send
           const emailAddresses = customer.email
             .split(';')
             .map(e => e.trim())
@@ -214,6 +263,7 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
               contactId: customer.id,
               senderName,
               isHtml: true,
+              attachments: encodedAttachments,
             }),
           });
 
@@ -278,46 +328,46 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
   const progress = selectedCustomers.length > 0 ? (successCount + errorCount) / selectedCustomers.length : 0;
 
   return (
-    <div className="flex flex-col h-full max-h-[90vh]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 rounded-t-xl flex-shrink-0">
+    <div className="flex flex-col h-full" style={{ height: '85vh' }}>
+      {/* Gmail-style header */}
+      <div className="flex items-center justify-between px-5 py-3 bg-gray-800 rounded-t-lg flex-shrink-0">
         <div className="flex items-center gap-2">
-          <Mail className="w-5 h-5 text-blue-600" />
-          <span className="font-semibold text-gray-900">Bulk Email</span>
-          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium flex items-center gap-1">
+          <span className="font-semibold text-white text-sm">New Message</span>
+          <span className="px-2 py-0.5 bg-blue-500 text-white text-xs rounded-full font-medium flex items-center gap-1">
             <Users className="w-3 h-3" />
-            {selectedCustomers.length} recipients
+            {selectedCustomers.length} recipients — sent individually
           </span>
         </div>
-        <button onClick={onClose} disabled={sending} className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded transition disabled:opacity-40">
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button onClick={onClose} disabled={sending} className="p-1.5 text-gray-300 hover:text-white hover:bg-gray-700 rounded transition disabled:opacity-40">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Compose panel */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex flex-1 overflow-hidden bg-white">
+        {/* Main compose area */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           {/* To field */}
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white flex-shrink-0">
-            <span className="text-sm text-gray-500 w-14 flex-shrink-0">To</span>
-            <div className="flex-1 flex flex-wrap gap-1 min-h-[28px]">
-              {selectedCustomers.slice(0, 4).map(c => (
-                <span key={c.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+          <div className="flex items-start gap-2 px-5 py-2.5 border-b border-gray-200 bg-white flex-shrink-0">
+            <span className="text-sm text-gray-500 w-16 flex-shrink-0 mt-0.5">To</span>
+            <div className="flex-1 flex flex-wrap gap-1.5">
+              {selectedCustomers.slice(0, 6).map(c => (
+                <span key={c.id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded-full text-xs text-blue-800 font-medium">
                   {c.contact_person ? `${c.contact_person} <${c.email}>` : c.email}
                 </span>
               ))}
-              {selectedCustomers.length > 4 && (
-                <span className="inline-flex items-center px-2 py-0.5 bg-gray-100 border border-gray-200 rounded text-xs text-gray-600">
-                  +{selectedCustomers.length - 4} more
+              {selectedCustomers.length > 6 && (
+                <span className="inline-flex items-center px-2 py-1 bg-gray-100 border border-gray-200 rounded-full text-xs text-gray-600">
+                  +{selectedCustomers.length - 6} more
                 </span>
               )}
             </div>
-            <span className="text-xs text-gray-400 flex-shrink-0">Each receives their own copy</span>
           </div>
 
           {/* Subject */}
-          <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 bg-white flex-shrink-0">
-            <span className="text-sm text-gray-500 w-14 flex-shrink-0">Subject</span>
+          <div className="flex items-center gap-2 px-5 py-2.5 border-b border-gray-200 bg-white flex-shrink-0">
+            <span className="text-sm text-gray-500 w-16 flex-shrink-0">Subject</span>
             <input
               type="text"
               value={subject}
@@ -326,67 +376,12 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
               className="flex-1 text-sm text-gray-900 outline-none bg-transparent placeholder-gray-400 disabled:opacity-60"
               placeholder="Subject (use {{company_name}}, {{contact_person}})"
             />
-          </div>
-
-          {/* Toolbar */}
-          <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-gray-100 bg-white flex-shrink-0 flex-wrap">
-            <ToolbarButton icon={<Bold className="w-3.5 h-3.5" />} onClick={() => execFormat('bold')} title="Bold (Ctrl+B)" />
-            <ToolbarButton icon={<Italic className="w-3.5 h-3.5" />} onClick={() => execFormat('italic')} title="Italic (Ctrl+I)" />
-            <ToolbarButton icon={<Underline className="w-3.5 h-3.5" />} onClick={() => execFormat('underline')} title="Underline (Ctrl+U)" />
-            <div className="w-px h-4 bg-gray-200 mx-1" />
-            <ToolbarButton icon={<Type className="w-3.5 h-3.5" />} onClick={() => execFormat('fontSize', '4')} title="Larger text" />
-            <ToolbarButton icon={<Type className="w-3 h-3" />} onClick={() => execFormat('fontSize', '2')} title="Smaller text" />
-            <div className="w-px h-4 bg-gray-200 mx-1" />
-            <ToolbarButton icon={<AlignLeft className="w-3.5 h-3.5" />} onClick={() => execFormat('justifyLeft')} title="Align left" />
-            <ToolbarButton icon={<AlignCenter className="w-3.5 h-3.5" />} onClick={() => execFormat('justifyCenter')} title="Align center" />
-            <ToolbarButton icon={<AlignRight className="w-3.5 h-3.5" />} onClick={() => execFormat('justifyRight')} title="Align right" />
-            <div className="w-px h-4 bg-gray-200 mx-1" />
-            <ToolbarButton icon={<List className="w-3.5 h-3.5" />} onClick={() => execFormat('insertUnorderedList')} title="Bullet list" />
-            <ToolbarButton icon={<Link2 className="w-3.5 h-3.5" />} onClick={insertLink} title="Insert link" />
-            <div className="w-px h-4 bg-gray-200 mx-1" />
-
-            {/* Color picker */}
-            <label className="relative cursor-pointer p-1.5 rounded hover:bg-gray-100 transition" title="Text color">
-              <span className="text-xs font-bold" style={{ color: '#e53e3e' }}>A</span>
-              <input
-                type="color"
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                onChange={e => execFormat('foreColor', e.target.value)}
-              />
-            </label>
-
-            {/* Variables insert */}
-            <div className="relative ml-1" ref={variableMenuRef}>
-              <button
-                onClick={() => setShowVariableMenu(v => !v)}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition"
-                title="Insert variable"
-              >
-                Insert variable
-                <ChevronDown className="w-3 h-3" />
-              </button>
-              {showVariableMenu && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[160px]">
-                  {VARIABLES.map(v => (
-                    <button
-                      key={v.value}
-                      onClick={() => insertVariable(v.value)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 first:rounded-t-lg last:rounded-b-lg"
-                    >
-                      <span className="font-mono text-blue-600">{v.value}</span>
-                      <span className="text-gray-400 ml-1">— {v.label}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Template picker */}
-            <div className="relative ml-auto" ref={templateMenuRef}>
+            {/* Template picker — inline with subject */}
+            <div className="relative flex-shrink-0" ref={templateMenuRef}>
               <button
                 onClick={() => setShowTemplateMenu(v => !v)}
                 disabled={sending}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition disabled:opacity-40"
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-600 bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-lg transition disabled:opacity-40"
               >
                 <FileText className="w-3.5 h-3.5" />
                 Templates
@@ -418,26 +413,119 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
             </div>
           </div>
 
+          {/* Formatting toolbar */}
+          <div className="flex items-center gap-0.5 px-4 py-1.5 border-b border-gray-100 bg-gray-50 flex-shrink-0 flex-wrap">
+            <ToolbarButton icon={<Bold className="w-3.5 h-3.5" />} onClick={() => execFormat('bold')} title="Bold" />
+            <ToolbarButton icon={<Italic className="w-3.5 h-3.5" />} onClick={() => execFormat('italic')} title="Italic" />
+            <ToolbarButton icon={<Underline className="w-3.5 h-3.5" />} onClick={() => execFormat('underline')} title="Underline" />
+            <div className="w-px h-4 bg-gray-300 mx-1" />
+            <ToolbarButton icon={<Type className="w-3.5 h-3.5" />} onClick={() => execFormat('fontSize', '4')} title="Larger text" />
+            <ToolbarButton icon={<Type className="w-3 h-3" />} onClick={() => execFormat('fontSize', '2')} title="Smaller text" />
+            <div className="w-px h-4 bg-gray-300 mx-1" />
+            <ToolbarButton icon={<AlignLeft className="w-3.5 h-3.5" />} onClick={() => execFormat('justifyLeft')} title="Align left" />
+            <ToolbarButton icon={<AlignCenter className="w-3.5 h-3.5" />} onClick={() => execFormat('justifyCenter')} title="Align center" />
+            <ToolbarButton icon={<AlignRight className="w-3.5 h-3.5" />} onClick={() => execFormat('justifyRight')} title="Align right" />
+            <div className="w-px h-4 bg-gray-300 mx-1" />
+            <ToolbarButton icon={<List className="w-3.5 h-3.5" />} onClick={() => execFormat('insertUnorderedList')} title="Bullet list" />
+            <ToolbarButton icon={<Link2 className="w-3.5 h-3.5" />} onClick={insertLink} title="Insert link" />
+            <div className="w-px h-4 bg-gray-300 mx-1" />
+            <label className="relative cursor-pointer p-1.5 rounded hover:bg-gray-200 transition" title="Text color">
+              <span className="text-xs font-bold text-red-500">A</span>
+              <input
+                type="color"
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                onChange={e => execFormat('foreColor', e.target.value)}
+              />
+            </label>
+
+            <div className="relative ml-1" ref={variableMenuRef}>
+              <button
+                onClick={() => setShowVariableMenu(v => !v)}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 bg-white hover:bg-gray-100 border border-gray-200 rounded transition"
+              >
+                Insert variable <ChevronDown className="w-3 h-3" />
+              </button>
+              {showVariableMenu && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[160px]">
+                  {VARIABLES.map(v => (
+                    <button
+                      key={v.value}
+                      onClick={() => insertVariable(v.value)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700 first:rounded-t-lg last:rounded-b-lg"
+                    >
+                      <span className="font-mono text-blue-600">{v.value}</span>
+                      <span className="text-gray-400 ml-1">— {v.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Editor */}
-          <div className="flex-1 overflow-y-auto bg-white px-4 py-3">
+          <div className="flex-1 overflow-y-auto bg-white px-5 py-4">
             <div
               ref={editorRef}
               contentEditable={!sending}
               suppressContentEditableWarning
               onInput={syncHtml}
               onPaste={() => setTimeout(syncHtml, 0)}
-              className={`min-h-[200px] outline-none text-sm text-gray-800 leading-relaxed ${sending ? 'opacity-60 pointer-events-none' : ''}`}
-              style={{ wordBreak: 'break-word' }}
+              className={`min-h-full outline-none text-sm text-gray-800 leading-relaxed ${sending ? 'opacity-60 pointer-events-none' : ''}`}
+              style={{ wordBreak: 'break-word', minHeight: '200px' }}
               data-placeholder="Write your message here... Use {{company_name}} and {{contact_person}} for personalization"
             />
           </div>
 
-          {/* Throttle & footer */}
-          <div className="flex-shrink-0 border-t border-gray-100 bg-white px-4 py-2">
+          {/* Attachments list */}
+          {attachments.length > 0 && (
+            <div className="flex-shrink-0 border-t border-gray-100 bg-gray-50 px-5 py-2 flex flex-wrap gap-2">
+              {attachments.map(a => (
+                <div key={a.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 shadow-sm">
+                  <Paperclip className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                  <span className="max-w-[160px] truncate">{a.file.name}</span>
+                  <span className="text-gray-400">({formatFileSize(a.file.size)})</span>
+                  <button
+                    onClick={() => removeAttachment(a.id)}
+                    disabled={sending}
+                    className="ml-1 text-gray-400 hover:text-red-500 transition disabled:opacity-40"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Footer toolbar */}
+          <div className="flex-shrink-0 border-t border-gray-200 bg-white px-5 py-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2 text-xs text-gray-500">
+              {/* Send button */}
+              <button
+                onClick={sendBulkEmails}
+                disabled={sending || !subject.trim()}
+                className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm rounded-full hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              >
+                <Send className="w-3.5 h-3.5" />
+                Send to {selectedCustomers.length}
+              </button>
+
+              {/* Attach file */}
+              <label className="cursor-pointer p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition" title="Attach files">
+                <Paperclip className="w-5 h-5" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                  disabled={sending}
+                />
+              </label>
+
+              {/* Delay control */}
+              <div className="flex items-center gap-2 text-xs text-gray-500 ml-2">
                 <Clock className="w-3.5 h-3.5 text-amber-500" />
-                <span>Delay between emails:</span>
+                <span>Delay:</span>
                 <button onClick={() => setIntervalSeconds(s => Math.max(10, s - 5))} disabled={sending} className="p-0.5 hover:bg-gray-100 rounded">
                   <Minus className="w-3 h-3" />
                 </button>
@@ -445,19 +533,12 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
                 <button onClick={() => setIntervalSeconds(s => Math.min(300, s + 5))} disabled={sending} className="p-0.5 hover:bg-gray-100 rounded">
                   <Plus className="w-3 h-3" />
                 </button>
-                <span className="text-gray-400">≈ {Math.ceil((selectedCustomers.length * intervalSeconds) / 60)} min total</span>
+                <span className="text-gray-400">≈ {Math.ceil((selectedCustomers.length * intervalSeconds) / 60)} min</span>
               </div>
-              <div className="ml-auto flex items-center gap-2">
-                <button onClick={onClose} disabled={sending} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition disabled:opacity-40">
-                  Cancel
-                </button>
-                <button
-                  onClick={sendBulkEmails}
-                  disabled={sending || !subject.trim()}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  Send to {selectedCustomers.length}
+
+              <div className="ml-auto">
+                <button onClick={onClose} disabled={sending} className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition disabled:opacity-40">
+                  Discard
                 </button>
               </div>
             </div>
@@ -465,34 +546,34 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
         </div>
 
         {/* Right: Recipients panel */}
-        <div className="w-56 border-l border-gray-100 bg-gray-50 flex flex-col flex-shrink-0">
-          <div className="px-3 py-2 border-b border-gray-200">
+        <div className="w-60 border-l border-gray-200 bg-gray-50 flex flex-col flex-shrink-0">
+          <div className="px-4 py-3 border-b border-gray-200 bg-white">
             <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Recipients</p>
+            <p className="text-xs text-gray-400 mt-0.5">Each gets their own email</p>
           </div>
 
           {step === 'sending' || step === 'done' ? (
             <>
-              {/* Progress bar */}
-              <div className="px-3 py-2 border-b border-gray-100">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
+              <div className="px-4 py-3 border-b border-gray-100 bg-white">
+                <div className="flex justify-between text-xs text-gray-500 mb-1.5">
                   <span>{successCount + errorCount} / {selectedCustomers.length}</span>
                   <span>{Math.round(progress * 100)}%</span>
                 </div>
-                <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 rounded-full transition-all"
                     style={{ width: `${progress * 100}%` }}
                   />
                 </div>
-                <div className="flex gap-3 mt-1.5 text-xs">
-                  <span className="text-green-600 flex items-center gap-0.5"><CheckCircle className="w-3 h-3" />{successCount}</span>
-                  <span className="text-red-500 flex items-center gap-0.5"><XCircle className="w-3 h-3" />{errorCount}</span>
-                  <span className="text-gray-400 flex items-center gap-0.5"><Clock className="w-3 h-3" />{pendingCount}</span>
+                <div className="flex gap-3 mt-2 text-xs">
+                  <span className="text-green-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" />{successCount}</span>
+                  <span className="text-red-500 flex items-center gap-1"><XCircle className="w-3 h-3" />{errorCount}</span>
+                  <span className="text-gray-400 flex items-center gap-1"><Clock className="w-3 h-3" />{pendingCount}</span>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {sendResults.map((r, idx) => (
-                  <div key={idx} className={`px-3 py-2 border-b border-gray-100 last:border-0 flex items-center gap-2 ${
+                  <div key={idx} className={`px-4 py-2.5 border-b border-gray-100 last:border-0 flex items-center gap-2 ${
                     r.status === 'success' ? 'bg-green-50' :
                     r.status === 'error' ? 'bg-red-50' :
                     r.status === 'sending' ? 'bg-blue-50' : ''
@@ -515,9 +596,9 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
           ) : (
             <div className="flex-1 overflow-y-auto">
               {selectedCustomers.map((c, idx) => (
-                <div key={idx} className="px-3 py-2 border-b border-gray-100 last:border-0">
+                <div key={idx} className="px-4 py-2.5 border-b border-gray-100 last:border-0">
                   <p className="text-xs font-medium text-gray-800 truncate">{c.company_name}</p>
-                  <p className="text-xs text-gray-400 truncate">{c.contact_person || ''}</p>
+                  {c.contact_person && <p className="text-xs text-gray-500 truncate">{c.contact_person}</p>}
                   <p className="text-xs text-gray-400 truncate">{c.email}</p>
                 </div>
               ))}
@@ -541,7 +622,7 @@ function ToolbarButton({ icon, onClick, title }: { icon: React.ReactNode; onClic
   return (
     <button
       onMouseDown={e => { e.preventDefault(); onClick(); }}
-      className="p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded transition"
+      className="p-1.5 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition"
       title={title}
       type="button"
     >

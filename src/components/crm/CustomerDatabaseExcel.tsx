@@ -950,6 +950,8 @@ export function CustomerDatabaseExcel() {
         isOpen={bulkEmailModalOpen}
         onClose={() => { setBulkEmailModalOpen(false); setSelectedRows(new Set()); }}
         title="Bulk Email"
+        size="xl"
+        noPadding
       >
         <BulkEmailComposer
           selectedCustomers={getSelectedCustomersForEmail()}

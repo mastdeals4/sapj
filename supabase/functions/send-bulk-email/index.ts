@@ -45,35 +45,83 @@ async function getValidAccessToken(supabase: any, connection: any): Promise<stri
   return refreshData.access_token;
 }
 
-function encodeEmailRFC2822(
+function encodeBase64Url(str: string): string {
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function encodeMimeWord(str: string): string {
+  return `=?utf-8?B?${btoa(unescape(encodeURIComponent(str)))}?=`;
+}
+
+interface Attachment {
+  filename: string;
+  mimeType: string;
+  data: string; // base64
+}
+
+function buildEmailRaw(
   fromEmail: string,
   fromName: string,
   toEmail: string,
   subject: string,
-  htmlBody: string
+  htmlBody: string,
+  attachments: Attachment[]
 ): string {
-  const fromField = fromName
-    ? `=?utf-8?B?${btoa(unescape(encodeURIComponent(fromName)))}?= <${fromEmail}>`
-    : fromEmail;
+  const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const fromField = fromName ? `${encodeMimeWord(fromName)} <${fromEmail}>` : fromEmail;
+  const encodedSubject = encodeMimeWord(subject);
 
-  const encodedSubject = `=?utf-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`;
+  if (attachments.length === 0) {
+    // Simple HTML email, no attachments
+    const lines = [
+      `From: ${fromField}`,
+      `To: ${toEmail}`,
+      `Subject: ${encodedSubject}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: text/html; charset=utf-8`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      btoa(unescape(encodeURIComponent(htmlBody))),
+    ];
+    return encodeBase64Url(lines.join("\r\n"));
+  }
 
-  const lines = [
-    `From: ${fromField}`,
-    `To: ${toEmail}`,
-    `Subject: ${encodedSubject}`,
-    `MIME-Version: 1.0`,
+  // Multipart mixed for attachments
+  const parts: string[] = [];
+
+  // HTML body part
+  parts.push([
+    `--${boundary}`,
     `Content-Type: text/html; charset=utf-8`,
     `Content-Transfer-Encoding: base64`,
     ``,
     btoa(unescape(encodeURIComponent(htmlBody))),
-  ];
+  ].join("\r\n"));
 
-  const raw = lines.join("\r\n");
-  return btoa(unescape(encodeURIComponent(raw)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  // Attachment parts
+  for (const att of attachments) {
+    const encodedFilename = encodeMimeWord(att.filename);
+    parts.push([
+      `--${boundary}`,
+      `Content-Type: ${att.mimeType}; name="${encodedFilename}"`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-Disposition: attachment; filename="${encodedFilename}"`,
+      ``,
+      att.data,
+    ].join("\r\n"));
+  }
+
+  const headers = [
+    `From: ${fromField}`,
+    `To: ${toEmail}`,
+    `Subject: ${encodedSubject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    ``,
+  ].join("\r\n");
+
+  const body = parts.join("\r\n") + `\r\n--${boundary}--`;
+  return encodeBase64Url(headers + body);
 }
 
 Deno.serve(async (req: Request) => {
@@ -86,7 +134,7 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { userId, toEmails, subject, body, contactId, senderName, isHtml } = await req.json();
+    const { userId, toEmails, subject, body, contactId, senderName, isHtml, attachments } = await req.json();
 
     if (!userId || !toEmails || !subject || !body) {
       return new Response(
@@ -112,18 +160,22 @@ Deno.serve(async (req: Request) => {
     const accessToken = await getValidAccessToken(supabase, connection);
 
     const recipientEmails: string[] = Array.isArray(toEmails) ? toEmails : [toEmails];
-    const toField = recipientEmails.join(", ");
+    // Send to the first valid email of this customer (one individual email per call)
+    const toField = recipientEmails[0];
 
     const htmlContent = isHtml
       ? body
       : `<html><body><pre style="font-family:sans-serif;white-space:pre-wrap">${body}</pre></body></html>`;
 
-    const encodedEmail = encodeEmailRFC2822(
+    const fileAttachments: Attachment[] = Array.isArray(attachments) ? attachments : [];
+
+    const encodedEmail = buildEmailRaw(
       connection.email_address,
       senderName || "",
       toField,
       subject,
-      htmlContent
+      htmlContent,
+      fileAttachments
     );
 
     const sendResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {

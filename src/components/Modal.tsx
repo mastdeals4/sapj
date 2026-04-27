@@ -9,9 +9,10 @@ interface ModalProps {
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   maxWidth?: string;
+  noPadding?: boolean;
 }
 
-export function Modal({ isOpen, onClose, title, children, size = 'md', maxWidth }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, size = 'md', maxWidth, noPadding }: ModalProps) {
   const { t } = useLanguage();
 
   useEffect(() => {
@@ -49,17 +50,19 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', maxWidth 
         <div
           className={`relative bg-white rounded-lg shadow-xl ${widthClass} w-full max-h-[90vh] flex flex-col`}
         >
-          <div className="flex items-center justify-between p-3 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-            <button
-              onClick={onClose}
-              className="p-1 rounded hover:bg-gray-100 transition"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
+          {!noPadding && (
+            <div className="flex items-center justify-between p-3 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+              <button
+                onClick={onClose}
+                className="p-1 rounded hover:bg-gray-100 transition"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+          )}
 
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className={`flex-1 overflow-hidden ${noPadding ? '' : 'p-4 overflow-y-auto'}`}>
             {children}
           </div>
         </div>

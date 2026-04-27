@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { Users, Upload, Search, Edit, Trash2, Building, Mail, Phone, Globe, MapPin, Activity, Send, MessageCircle } from 'lucide-react';
+import { Users, Upload, Search, CreditCard as Edit, Trash2, Building, Mail, Phone, Globe, MapPin, Activity, Send, MessageCircle } from 'lucide-react';
 import { Modal } from '../Modal';
 import { CustomerInteractionTimeline } from './CustomerInteractionTimeline';
 import { BulkEmailComposer } from './BulkEmailComposer';
@@ -895,6 +895,8 @@ Bio Solutions Ltd,"789 Industrial Zone",Bandung,TRADER,022-5554321,David Chen,08
           setSelectedContacts(new Set());
         }}
         title="Bulk Email"
+        size="xl"
+        noPadding
       >
         <BulkEmailComposer
           selectedCustomers={getSelectedCustomersForEmail()}
