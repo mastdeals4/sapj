@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Layout } from '../../components/Layout';
 import { useFinance } from '../../contexts/FinanceContext';
 import { supabase } from '../../lib/supabase';
@@ -97,15 +97,17 @@ function exportCSV(rows: Record<string, unknown>[], filename: string) {
 
 interface ProductRow {
   product_id: string; product_name: string; product_code: string;
-  total_qty_sold: number; total_sales_value: number; total_cost_value: number;
-  total_profit: number; profit_pct: number;
-  avg_selling_price: number; avg_cost_per_unit: number;
+  total_qty_sold: number;
+  avg_selling_price: number; avg_landed_cost: number;
+  profit_per_unit: number; profit_pct: number; total_profit: number;
+  no_cost: boolean;
 }
 interface DrilldownRow {
   invoice_id: string; invoice_number: string; invoice_date: string;
   customer_name: string; batch_number: string; qty: number;
-  selling_price: number; cost_per_unit: number;
+  selling_price: number; landed_cost: number; profit_per_unit: number;
   line_sales: number; line_cost: number; line_profit: number; profit_pct: number;
+  no_cost: boolean;
 }
 interface MonthRow {
   month_label: string; month_start: string;
@@ -132,14 +134,14 @@ function DrilldownPanel({ product, rows, loading, onClose }: {
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-gray-900/40" onClick={onClose} />
-      <div className="w-full max-w-4xl bg-white shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-3xl bg-white shadow-2xl flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50">
           <div>
             <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Invoice Drill-down</p>
             <h2 className="text-base font-bold text-gray-900 mt-0.5">{product.product_name}</h2>
-            {product.product_code && <p className="text-xs text-gray-400">{product.product_code}</p>}
+            {product.product_code && <p className="text-xs text-gray-400 font-mono">{product.product_code}</p>}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div className="text-right">
               <p className="text-xs text-gray-400">Total Profit</p>
               <p className={`text-lg font-bold ${product.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -150,12 +152,13 @@ function DrilldownPanel({ product, rows, loading, onClose }: {
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-200 transition"><X className="w-5 h-5 text-gray-500" /></button>
           </div>
         </div>
-        <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-200 bg-white">
+        <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-200">
           {[
-            { label: 'Total Qty',   value: formatNumber(product.total_qty_sold, 3) },
-            { label: 'Sales Value', value: formatCurrency(product.total_sales_value) },
-            { label: 'Cost Value',  value: formatCurrency(product.total_cost_value) },
-            { label: 'Avg Selling', value: formatCurrency(product.avg_selling_price) },
+            { label: 'Total Qty',       value: formatNumber(product.total_qty_sold, 3) },
+            { label: 'Avg Sell Price',  value: formatCurrency(product.avg_selling_price) },
+            { label: 'Avg Landed Cost', value: product.no_cost
+                ? <span className="text-amber-600 font-semibold">No cost data</span>
+                : formatCurrency(product.avg_landed_cost) },
           ].map(s => (
             <div key={s.label} className="px-5 py-3 text-center">
               <p className="text-xs text-gray-400">{s.label}</p>
@@ -168,36 +171,41 @@ function DrilldownPanel({ product, rows, loading, onClose }: {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Invoice No','Date','Customer','Batch','Qty','Sell Price','Cost/Unit','Sales','Cost','Profit','Margin'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+                  {['Invoice','Date','Customer','Batch','Qty','Sell Price','Landed Cost','Profit/Unit','Profit','Margin'].map(h => (
+                    <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {rows.map((r, i) => (
-                  <tr key={`${r.invoice_id}-${i}`} className="hover:bg-blue-50/40 transition-colors">
-                    <td className="px-4 py-2 font-mono text-xs font-medium text-blue-700 whitespace-nowrap">{r.invoice_number}</td>
-                    <td className="px-4 py-2 text-xs text-gray-600 whitespace-nowrap">{r.invoice_date}</td>
-                    <td className="px-4 py-2 text-xs text-gray-800 max-w-[140px] truncate">{r.customer_name}</td>
-                    <td className="px-4 py-2 text-xs text-gray-500 font-mono whitespace-nowrap">{r.batch_number || '—'}</td>
-                    <td className="px-4 py-2 text-right text-xs font-medium text-gray-800">{formatNumber(r.qty, 3)}</td>
-                    <td className="px-4 py-2 text-right text-xs text-gray-700">{formatCurrency(r.selling_price)}</td>
-                    <td className="px-4 py-2 text-right text-xs text-gray-500">{formatCurrency(r.cost_per_unit)}</td>
-                    <td className="px-4 py-2 text-right text-xs font-medium text-gray-800">{formatCurrency(r.line_sales)}</td>
-                    <td className="px-4 py-2 text-right text-xs text-gray-500">{formatCurrency(r.line_cost)}</td>
-                    <td className={`px-4 py-2 text-right text-xs font-semibold ${r.line_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>{formatCurrency(r.line_profit)}</td>
-                    <td className="px-4 py-2 text-right"><ProfitBadge pct={r.profit_pct} /></td>
+                  <tr key={`${r.invoice_id}-${i}`} className={`hover:bg-blue-50/40 transition-colors ${r.no_cost ? 'bg-amber-50/30' : ''}`}>
+                    <td className="px-3 py-2 font-mono text-xs font-medium text-blue-700 whitespace-nowrap">{r.invoice_number}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{r.invoice_date}</td>
+                    <td className="px-3 py-2 text-xs text-gray-800 max-w-[120px] truncate">{r.customer_name}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500 font-mono whitespace-nowrap">{r.batch_number || '—'}</td>
+                    <td className="px-3 py-2 text-right text-xs font-medium text-gray-800">{formatNumber(r.qty, 3)}</td>
+                    <td className="px-3 py-2 text-right text-xs text-gray-700">{formatCurrency(r.selling_price)}</td>
+                    <td className="px-3 py-2 text-right text-xs text-gray-500">
+                      {r.no_cost ? <span className="text-amber-500 text-[10px]">—</span> : formatCurrency(r.landed_cost)}
+                    </td>
+                    <td className={`px-3 py-2 text-right text-xs font-medium ${r.profit_per_unit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {r.no_cost ? '—' : formatCurrency(r.profit_per_unit)}
+                    </td>
+                    <td className={`px-3 py-2 text-right text-xs font-semibold ${r.line_profit >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {r.no_cost ? '—' : formatCurrency(r.line_profit)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {r.no_cost ? <span className="text-[10px] text-amber-500 font-medium">No cost</span> : <ProfitBadge pct={r.profit_pct} />}
+                    </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot className="border-t-2 border-gray-200 bg-gray-50 sticky bottom-0">
                 <tr>
-                  <td colSpan={4} className="px-4 py-2.5 text-xs font-bold text-gray-600">TOTAL</td>
-                  <td className="px-4 py-2.5 text-right text-xs font-bold text-gray-800">{formatNumber(rows.reduce((s,r)=>s+r.qty,0),3)}</td>
-                  <td /><td />
-                  <td className="px-4 py-2.5 text-right text-xs font-bold text-gray-800">{formatCurrency(rows.reduce((s,r)=>s+r.line_sales,0))}</td>
-                  <td className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500">{formatCurrency(rows.reduce((s,r)=>s+r.line_cost,0))}</td>
-                  <td className="px-4 py-2.5 text-right text-xs font-bold text-green-700">{formatCurrency(rows.reduce((s,r)=>s+r.line_profit,0))}</td>
+                  <td colSpan={4} className="px-3 py-2.5 text-xs font-bold text-gray-600">TOTAL</td>
+                  <td className="px-3 py-2.5 text-right text-xs font-bold text-gray-800">{formatNumber(rows.reduce((s,r)=>s+r.qty,0),3)}</td>
+                  <td colSpan={3} />
+                  <td className="px-3 py-2.5 text-right text-xs font-bold text-green-700">{formatCurrency(rows.reduce((s,r)=>s+r.line_profit,0))}</td>
                   <td />
                 </tr>
               </tfoot>
@@ -243,36 +251,23 @@ function SalesProfitTab({ dateRange }: { dateRange: { startDate: string; endDate
     r.product_code.toLowerCase().includes(search.toLowerCase())
   ));
 
-  const totalSales  = rows.reduce((s,r)=>s+r.total_sales_value,0);
-  const totalCost   = rows.reduce((s,r)=>s+r.total_cost_value,0);
-  const totalProfit = rows.reduce((s,r)=>s+r.total_profit,0);
-  const overallPct  = totalSales > 0 ? (totalProfit/totalSales)*100 : 0;
+  const totalProfit  = filtered.reduce((s,r)=>s+r.total_profit,0);
+  const totalQty     = filtered.reduce((s,r)=>s+r.total_qty_sold,0);
+  const noCostCount  = filtered.filter(r=>r.no_cost).length;
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Total Sales"    value={formatCurrency(totalSales)}  sub={`${rows.length} products`} />
-        <StatCard label="Total COGS"     value={formatCurrency(totalCost)}   sub="Cost of goods sold" />
-        <StatCard label="Gross Profit"   value={formatCurrency(totalProfit)} sub={`${formatNumber(overallPct,1)}% margin`} />
-        <StatCard label="Total Qty Sold" value={formatNumber(rows.reduce((s,r)=>s+r.total_qty_sold,0),0)} sub="across all products" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <StatCard label="Total Profit"   value={formatCurrency(totalProfit)} sub={`${filtered.length} products`} />
+        <StatCard label="Total Qty Sold" value={formatNumber(totalQty, 0)} />
+        {noCostCount > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 shadow-sm">
+            <p className="text-xs text-amber-600 font-medium">Missing Cost Data</p>
+            <p className="text-xl font-bold text-amber-700 mt-1">{noCostCount}</p>
+            <p className="text-xs text-amber-500 mt-0.5">products have no landed cost</p>
+          </div>
+        )}
       </div>
-
-      {totalSales > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 shadow-sm">
-          <div className="flex justify-between text-xs text-gray-500 mb-2">
-            <span className="font-medium">Revenue breakdown</span>
-            <span>{formatNumber(overallPct,1)}% profit margin</span>
-          </div>
-          <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex">
-            <div className="h-full bg-red-400" style={{ width: `${Math.min((totalCost/totalSales)*100,100)}%` }} title="COGS" />
-            <div className="h-full bg-green-500" style={{ width: `${Math.max(0,Math.min((totalProfit/totalSales)*100,100))}%` }} title="Profit" />
-          </div>
-          <div className="flex gap-4 mt-2 text-xs text-gray-400">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" />COGS</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-green-500 inline-block" />Profit</span>
-          </div>
-        </div>
-      )}
 
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-xs">
@@ -299,20 +294,18 @@ function SalesProfitTab({ dateRange }: { dateRange: { startDate: string; endDate
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-4 py-3 w-6" />
-                  <th className={thCls(sortKey==='product_name')} onClick={()=>handleSort('product_name')}>Product <SortIcon col="product_name" /></th>
+                  <th className={thCls(sortKey==='product_name')} onClick={()=>handleSort('product_name')}>Product Name <SortIcon col="product_name" /></th>
                   <th className={`${thCls(sortKey==='total_qty_sold')} text-right`} onClick={()=>handleSort('total_qty_sold')}>Qty Sold <SortIcon col="total_qty_sold" /></th>
-                  <th className={`${thCls(sortKey==='avg_selling_price')} text-right`} onClick={()=>handleSort('avg_selling_price')}>Avg Sell Price <SortIcon col="avg_selling_price" /></th>
-                  <th className={`${thCls(sortKey==='avg_cost_per_unit')} text-right`} onClick={()=>handleSort('avg_cost_per_unit')}>Avg Cost/Unit <SortIcon col="avg_cost_per_unit" /></th>
-                  <th className={`${thCls(sortKey==='total_sales_value')} text-right`} onClick={()=>handleSort('total_sales_value')}>Total Sales <SortIcon col="total_sales_value" /></th>
-                  <th className={`${thCls(sortKey==='total_cost_value')} text-right`} onClick={()=>handleSort('total_cost_value')}>Total Cost <SortIcon col="total_cost_value" /></th>
+                  <th className={`${thCls(sortKey==='avg_selling_price')} text-right`} onClick={()=>handleSort('avg_selling_price')}>Avg Selling Price <SortIcon col="avg_selling_price" /></th>
+                  <th className={`${thCls(sortKey==='avg_landed_cost')} text-right`} onClick={()=>handleSort('avg_landed_cost')}>Avg Landed Cost <SortIcon col="avg_landed_cost" /></th>
+                  <th className={`${thCls(sortKey==='profit_pct')} text-right`} onClick={()=>handleSort('profit_pct')}>Profit % <SortIcon col="profit_pct" /></th>
                   <th className={`${thCls(sortKey==='total_profit')} text-right`} onClick={()=>handleSort('total_profit')}>Total Profit <SortIcon col="total_profit" /></th>
-                  <th className={`${thCls(sortKey==='profit_pct')} text-right`} onClick={()=>handleSort('profit_pct')}>Margin <SortIcon col="profit_pct" /></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(r => (
                   <tr key={r.product_id} onClick={()=>openDrilldown(r)}
-                    className="hover:bg-blue-50/50 cursor-pointer transition-colors group">
+                    className={`cursor-pointer transition-colors group ${r.no_cost ? 'bg-amber-50/30 hover:bg-amber-50' : r.total_profit >= 0 ? 'hover:bg-green-50/30' : 'hover:bg-red-50/30'}`}>
                     <td className="px-4 py-3 text-gray-300 group-hover:text-blue-400"><ChevronRight className="w-4 h-4" /></td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{r.product_name}</p>
@@ -320,11 +313,19 @@ function SalesProfitTab({ dateRange }: { dateRange: { startDate: string; endDate
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-800">{formatNumber(r.total_qty_sold,3)}</td>
                     <td className="px-4 py-3 text-right text-gray-700">{formatCurrency(r.avg_selling_price)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(r.avg_cost_per_unit)}</td>
-                    <td className="px-4 py-3 text-right font-medium text-gray-800">{formatCurrency(r.total_sales_value)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(r.total_cost_value)}</td>
-                    <td className={`px-4 py-3 text-right font-bold ${r.total_profit>=0?'text-green-700':'text-red-600'}`}>{formatCurrency(r.total_profit)}</td>
-                    <td className="px-4 py-3 text-right"><ProfitBadge pct={r.profit_pct} /></td>
+                    <td className="px-4 py-3 text-right text-gray-600">
+                      {r.no_cost
+                        ? <span className="text-xs text-amber-500 font-medium">No cost data</span>
+                        : formatCurrency(r.avg_landed_cost)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {r.no_cost
+                        ? <span className="text-xs text-amber-500 font-medium">—</span>
+                        : <ProfitBadge pct={r.profit_pct} />}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-bold ${r.no_cost ? 'text-amber-500' : r.total_profit>=0?'text-green-700':'text-red-600'}`}>
+                      {r.no_cost ? '—' : formatCurrency(r.total_profit)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -332,14 +333,8 @@ function SalesProfitTab({ dateRange }: { dateRange: { startDate: string; endDate
                 <tr>
                   <td colSpan={2} className="px-4 py-3 text-xs font-bold text-gray-600 uppercase">Grand Total ({filtered.length} products)</td>
                   <td className="px-4 py-3 text-right text-xs font-bold text-gray-800">{formatNumber(filtered.reduce((s,r)=>s+r.total_qty_sold,0),3)}</td>
-                  <td colSpan={2} />
-                  <td className="px-4 py-3 text-right text-xs font-bold text-gray-800">{formatCurrency(filtered.reduce((s,r)=>s+r.total_sales_value,0))}</td>
-                  <td className="px-4 py-3 text-right text-xs font-semibold text-gray-500">{formatCurrency(filtered.reduce((s,r)=>s+r.total_cost_value,0))}</td>
+                  <td colSpan={3} />
                   <td className="px-4 py-3 text-right text-xs font-bold text-green-700">{formatCurrency(filtered.reduce((s,r)=>s+r.total_profit,0))}</td>
-                  <td className="px-4 py-3 text-right">
-                    <ProfitBadge pct={filtered.reduce((s,r)=>s+r.total_sales_value,0) > 0
-                      ? (filtered.reduce((s,r)=>s+r.total_profit,0)/filtered.reduce((s,r)=>s+r.total_sales_value,0))*100 : 0} />
-                  </td>
                 </tr>
               </tfoot>
             </table>
