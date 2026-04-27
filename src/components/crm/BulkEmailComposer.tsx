@@ -219,6 +219,35 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
         return;
       }
 
+      // Create campaign record immediately so it's persisted even if the browser closes
+      const { data: campaign, error: campaignErr } = await supabase
+        .from('bulk_email_campaigns')
+        .insert({
+          subject,
+          total_recipients: selectedCustomers.length,
+          sent_count: 0,
+          failed_count: 0,
+          status: 'in_progress',
+          has_attachments: attachments.length > 0,
+          template_id: selectedTemplate?.id || null,
+          created_by: user.id,
+        })
+        .select('id')
+        .single();
+
+      if (campaignErr || !campaign) throw new Error('Failed to create campaign log');
+
+      // Insert all recipients as 'pending' up-front
+      await supabase.from('bulk_email_recipients').insert(
+        selectedCustomers.map(c => ({
+          campaign_id: campaign.id,
+          contact_id: c.id,
+          company_name: c.company_name,
+          email: c.email,
+          status: 'pending',
+        }))
+      );
+
       // Pre-encode attachments once (same for all recipients)
       const encodedAttachments = await Promise.all(
         attachments.map(async a => ({
@@ -230,6 +259,17 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       let successCount = 0;
+      let failCount = 0;
+
+      // Load the inserted recipient rows to get their IDs for updates
+      const { data: recipientRows } = await supabase
+        .from('bulk_email_recipients')
+        .select('id, email')
+        .eq('campaign_id', campaign.id);
+
+      const recipientIdMap = new Map<string, string>(
+        (recipientRows || []).map(r => [r.email, r.id])
+      );
 
       for (let i = 0; i < selectedCustomers.length; i++) {
         const customer = selectedCustomers[i];
@@ -239,8 +279,9 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
           idx === i ? { ...r, status: 'sending' } : r
         ));
 
+        const recipientRowId = recipientIdMap.get(customer.email);
+
         try {
-          // Each customer gets their own individual email — one email address per send
           const emailAddresses = customer.email
             .split(';')
             .map(e => e.trim())
@@ -282,6 +323,12 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
               created_by: user.id,
             }]);
 
+            if (recipientRowId) {
+              await supabase.from('bulk_email_recipients')
+                .update({ status: 'sent', sent_at: new Date().toISOString() })
+                .eq('id', recipientRowId);
+            }
+
             setSendResults(prev => prev.map((r, idx) =>
               idx === i ? { ...r, status: 'success' } : r
             ));
@@ -294,11 +341,33 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
             await new Promise(resolve => setTimeout(resolve, intervalSeconds * 1000));
           }
         } catch (err: any) {
+          failCount++;
+          if (recipientRowId) {
+            await supabase.from('bulk_email_recipients')
+              .update({ status: 'failed', error_message: err.message || 'Unknown error' })
+              .eq('id', recipientRowId);
+          }
           setSendResults(prev => prev.map((r, idx) =>
             idx === i ? { ...r, status: 'error', error: err.message } : r
           ));
         }
+
+        // Update campaign counts incrementally after each send
+        await supabase.from('bulk_email_campaigns')
+          .update({ sent_count: successCount, failed_count: failCount })
+          .eq('id', campaign.id);
       }
+
+      // Finalize campaign status
+      const finalStatus = failCount === 0 ? 'completed' : successCount === 0 ? 'failed' : 'partial';
+      await supabase.from('bulk_email_campaigns')
+        .update({
+          status: finalStatus,
+          sent_count: successCount,
+          failed_count: failCount,
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', campaign.id);
 
       if (selectedTemplate) {
         await supabase
@@ -309,9 +378,9 @@ export function BulkEmailComposer({ selectedCustomers, onClose, onComplete }: Bu
 
       setStep('done');
       showToast({
-        type: 'success',
+        type: failCount > 0 ? 'warning' : 'success',
         title: 'Bulk Email Complete',
-        message: `${successCount} of ${selectedCustomers.length} emails sent successfully.`,
+        message: `${successCount} sent, ${failCount} failed. Check Delivery Log for details.`,
       });
       onComplete();
     } catch (err: any) {
