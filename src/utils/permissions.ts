@@ -24,6 +24,7 @@ export const ALL_MODULES = [
   { id: 'command-center', label: 'Command Center' },
   { id: 'tasks', label: 'Tasks' },
   { id: 'inventory', label: 'Inventory Adjustments' },
+  { id: 'sales-profit-report', label: 'Sales Profit Report' },
   { id: 'settings', label: 'Settings' },
 ] as const;
 
@@ -31,10 +32,10 @@ export type ModuleId = typeof ALL_MODULES[number]['id'];
 
 const ROLE_DEFAULT_MODULES: Record<UserRole, ModuleId[]> = {
   admin: ALL_MODULES.map(m => m.id) as ModuleId[],
-  accounts: ['dashboard', 'batches', 'stock', 'customers', 'sales-orders', 'delivery-challan', 'sales', 'purchase-orders', 'import-containers', 'finance', 'tasks', 'settings'],
-  sales: ['dashboard', 'products', 'stock', 'customers', 'sales-orders', 'delivery-challan', 'sales', 'purchase-orders', 'import-requirements', 'price-calculator', 'crm', 'command-center', 'tasks', 'settings'],
+  accounts: ['dashboard', 'batches', 'stock', 'customers', 'sales-orders', 'delivery-challan', 'sales', 'purchase-orders', 'import-containers', 'finance', 'sales-profit-report', 'tasks', 'settings'],
+  sales: ['dashboard', 'products', 'stock', 'customers', 'sales-orders', 'delivery-challan', 'sales', 'purchase-orders', 'import-requirements', 'price-calculator', 'crm', 'command-center', 'sales-profit-report', 'tasks', 'settings'],
   warehouse: ['dashboard', 'products', 'batches', 'stock', 'customers', 'sales-orders', 'delivery-challan', 'sales', 'purchase-orders', 'tasks', 'inventory', 'settings'],
-  auditor_ca: ['dashboard', 'sales', 'purchase-orders', 'finance'],
+  auditor_ca: ['dashboard', 'sales', 'purchase-orders', 'finance', 'sales-profit-report'],
 };
 
 export function getDefaultModulesForRole(role: UserRole): ModuleId[] {
